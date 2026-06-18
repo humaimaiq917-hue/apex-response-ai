@@ -1,0 +1,179 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import folium
+from streamlit_folium import st_folium
+from datetime import datetime
+
+# --- PAGE CONFIGURATION ---
+st.set_page_config(
+    page_title="AI Disaster Response Dashboard",
+    page_icon="🚨",
+    layout="wide"
+)
+
+# --- TITLE & DESCRIPTION ---
+st.title("🚨 ApexResponseAI: Agent-Driven Disaster Recovery Dashboard")
+st.markdown("""
+**Role:** Disaster Recovery Manager Command Center  
+*The AI Agent dynamically fetches real-time data, alters affected locations based on disaster type, calculates Priority Scores, and updates the dispatch queue.*
+""")
+
+# --- SIDEBAR CONTROL PANEL ---
+st.sidebar.header("Control Panel")
+disaster_type = st.sidebar.selectbox(
+    "Select Active Disaster:",
+    ["Floods", "Earthquake", "Wildfire"]
+)
+
+st.sidebar.markdown("---")
+st.sidebar.info("💡 **AI Agent Status:** Active & Monitoring live data streams.")
+
+
+# --- DYNAMIC DATA STREAM VIA AI BACKEND ---
+@st.cache_data
+def fetch_ai_agent_disaster_data(disaster):
+    np.random.seed(42)  # Keeping seed for consistent generation per filter
+
+    # AI dynamically changes locations, base coordinates, and counts depending on the disaster type
+    if disaster == "Floods":
+        # Floods typically affect low-lying, riverside, or coastal residential sectors
+        base_lat, base_lon = 24.8607, 67.0011  # Base Region A
+        locations = [
+            "Sector A - Riverside Housing", "Sector B - Low-lying District",
+            "Sector C - Highway Bridge Bypass", "Sector D - Underground Subway Station",
+            "Sector E - Coastal Fishing Village", "Sector F - Grid Station East"
+        ]
+        num_incidents = len(locations)
+        damage_types = ["High Water Levels", "Submerged Infrastructure", "Critical Flash Flood"]
+
+    elif disaster == "Earthquake":
+        # Earthquakes hit structural centers, high-rises, and downtown blocks harder
+        base_lat, base_lon = 30.1798, 66.9750  # Base Region B (Fault line proximity zone)
+        locations = [
+            "Downtown Commercial Complex", "City General Hospital (Old Wing)",
+            "Central Flyover & Overpass", "Sector G - High-Rise Apartments",
+            "Industrial Area - Warehouse collapse", "Suburban Residential Block 3",
+            "Public School Infrastructure", "North Ridge Telecom Tower"
+        ]
+        num_incidents = len(locations)
+        damage_types = ["Structural Collapse", "Debris Blocking Roads", "Gas Leak Risk", "Critical Damage"]
+
+    else:  # Wildfire
+        # Wildfires target forest borders, national parks, and rural outskirts
+        base_lat, base_lon = 34.0151, 71.5249  # Base Region C
+        locations = [
+            "Pine Ridge Forest Border", "Outskirt Farmhouses Zone",
+            "National Park Eco-Resort", "North Valley Timber Mill",
+            "Rural Highway Petrol Pump"
+        ]
+        num_incidents = len(locations)
+        damage_types = ["Active Canopy Fire", "Heavy Smoke Suffocation", "Approach Road Blocked"]
+
+    # Generate records based on the AI dynamic selection
+    data = {
+        "Incident ID": [f"INC-{disaster[:2].upper()}-{100 + i}" for i in range(num_incidents)],
+        "Location Name": locations,
+        "Latitude": base_lat + np.random.uniform(-0.06, 0.06, num_incidents),
+        "Longitude": base_lon + np.random.uniform(-0.06, 0.06, num_incidents),
+        "Reported Severity (1-10)": np.random.randint(6, 11, num_incidents),
+        "Trapped Citizens": np.random.randint(2, 60, num_incidents),
+        "AI Damage Assessment": np.random.choice(damage_types, num_incidents),
+        "Timestamp": [datetime.now().strftime('%H:%M:%S') for _ in range(num_incidents)]
+    }
+
+    df = pd.DataFrame(data)
+
+    # --- AI AGENT PRIORITY ALGORITHM ---
+    # Formula adjustments depending on crisis realities
+    df['Priority Score'] = (df['Reported Severity (1-10)'] * 4.5) + (df['Trapped Citizens'] * 1.1)
+
+    # AI adding weightage to critical classifications
+    df.loc[df['AI Damage Assessment'].str.contains('Critical|Collapse|Hospital'), 'Priority Score'] += 15
+
+    # Cap score at 100
+    df['Priority Score'] = df['Priority Score'].clip(0, 100).round(1)
+
+    # Sorting by highest Priority Score so responders act optimally
+    df = df.sort_values(by="Priority Score", ascending=False).reset_index(drop=True)
+    return df
+
+
+# Fetch the dynamic data calculated by the AI Agent
+df_incident = fetch_ai_agent_disaster_data(disaster_type)
+
+# --- LIVE METRICS DASHBOARD ---
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric(label=f"Damaged Locations ({disaster_type})", value=len(df_incident))
+with col2:
+    critical_cases = len(df_incident[df_incident['Priority Score'] > 75])
+    st.metric(label="Critical Red Zones", value=critical_cases, delta="Immediate Dispatch Recommended",
+              delta_color="inverse")
+with col3:
+    total_trapped = int(df_incident['Trapped Citizens'].sum())
+    st.metric(label="Estimated Trapped Personnel", value=total_trapped)
+
+st.write("---")
+
+# --- MAIN WORKSPACE ---
+left_col, right_col = st.columns([1.3, 1])
+
+with left_col:
+    st.subheader("📍 Live Location Incident Mapping")
+    st.caption("Markers indicate AI prioritization hierarchy: Red (Critical) ➔ Orange (High) ➔ Yellow (Moderate)")
+
+    # Dynamic Map centering based on active disaster zone coordinates
+    m = folium.Map(location=[df_incident['Latitude'].mean(), df_incident['Longitude'].mean()], zoom_start=12)
+
+    for idx, row in df_incident.iterrows():
+        # Dynamic marker assignments based on computed priorities
+        if row['Priority Score'] >= 78:
+            color = 'red'
+            icon = 'exclamation-sign'
+        elif row['Priority Score'] >= 55:
+            color = 'orange'
+            icon = 'info-sign'
+        else:
+            color = 'yellow'
+            icon = 'info-sign'
+
+        popup_html = f"""
+        <b>ID:</b> {row['Incident ID']}<br>
+        <b>Zone:</b> {row['Location Name']}<br>
+        <b>AI Priority Rank:</b> {row['Priority Score']}/100<br>
+        <b>Trapped Count:</b> {row['Trapped Citizens']}<br>
+        <b>Status:</b> {row['AI Damage Assessment']}
+        """
+
+        folium.Marker(
+            location=[row['Latitude'], row['Longitude']],
+            popup=folium.Popup(popup_html, max_width=300),
+            tooltip=f"{row['Incident ID']} | Score: {row['Priority Score']}",
+            icon=folium.Icon(color=color, icon=icon)
+        ).add_to(m)
+
+    st_folium(m, width=750, height=520, key=f"map_{disaster_type}")
+
+with right_col:
+    st.subheader("📋 AI Sorted Emergency Dispatch Queue")
+    st.caption("Real-time telemetry optimized queue. Highest priorities are shifted to top.")
+
+    # Styled view processing
+    styled_df = df_incident[
+        ['Incident ID', 'Location Name', 'Trapped Citizens', 'AI Damage Assessment', 'Priority Score']]
+    st.dataframe(
+        styled_df.style.background_gradient(subset=['Priority Score'], cmap='YlOrRd'),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    # Action Deployment Panel
+    st.write("### ⚡ Tactical Deployment Action")
+    selected_incident = st.selectbox("Assign Active Rescue Unit To:", df_incident['Incident ID'])
+    incident_details = df_incident[df_incident['Incident ID'] == selected_incident].iloc[0]
+
+    if st.button(f"Confirm Unit Dispatch to {selected_incident}"):
+        st.success(
+            f"🚀 **Dispatch Successful:** Team sent to **{incident_details['Location Name']}**. Comms established via AI Relay.")
+        st.toast("Rescue unit route updated successfully.", icon="🗺️")
